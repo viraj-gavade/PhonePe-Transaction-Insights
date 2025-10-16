@@ -1,0 +1,22 @@
+# PhonePe Pulse Dashboard Requirements
+
+# Core Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+kaleido>=0.2.1  # For saving Plotly images
+
+# Dashboard
+streamlit>=1.28.0
+
+# Optional but recommended
+openpyxl>=3.1.0  # For Excel export
+jupyter>=1.0.0   # For notebooks
+ipython>=8.12.0  # Enhanced Python shell
