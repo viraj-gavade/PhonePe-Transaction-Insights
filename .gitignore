@@ -1,3 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Env files
+.env
+.env.*
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+Thumbs.db
+.DS_Store
 phone_pay_docs.docx
 pulse/
 docs/

@@ -1,14 +1,34 @@
 import os
 import pandas as pd
 from psycopg2 import connect
+from urllib.parse import urlparse
+from dotenv import load_dotenv
 
-DB_CONFIG = {
-    "dbname": "PhonePayDB",
-    "user": "postgres",
-    "password": "admin",
-    "host": "localhost",
-    "port": "5432"
-}
+# Load .env if present
+load_dotenv()
+
+def _parse_database_url(url: str):
+    """Parse a DATABASE_URL (postgres) into psycopg2 kwargs."""
+    parsed = urlparse(url)
+    return {
+        "dbname": parsed.path.lstrip('/'),
+        "user": parsed.username,
+        "password": parsed.password,
+        "host": parsed.hostname or 'localhost',
+        "port": str(parsed.port or 5432),
+    }
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    DB_CONFIG = _parse_database_url(DATABASE_URL)
+else:
+    DB_CONFIG = {
+        "dbname": os.getenv("DB_NAME", "PhonePayDB"),
+        "user": os.getenv("DB_USER", "postgres"),
+        "password": os.getenv("DB_PASSWORD", "admin"),
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": os.getenv("DB_PORT", "5432"),
+    }
 
 def run_query(sql_text, params=None):
     with connect(**DB_CONFIG) as conn:
