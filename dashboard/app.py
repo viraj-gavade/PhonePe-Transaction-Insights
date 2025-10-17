@@ -7,7 +7,7 @@ import os
 
 # Add parent directory to path before importing local modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from analysis.run_queries import run_query
+from analysis.run_queries import run_query, run_query_file, run_query_file_select
 
 # ==========================
 # Page Configuration
@@ -54,15 +54,15 @@ year = st.sidebar.selectbox("📅 Year", year_options, index=0)
 quarter_options = ['All', 1, 2, 3, 4]
 quarter = st.sidebar.selectbox("📊 Quarter", quarter_options, index=0)
 
-# State filter
+# State filter (multi-select)
 @st.cache_data
 def get_states():
     sql = "SELECT DISTINCT state FROM aggregated_transaction ORDER BY state;"
     df = run_query(sql)
-    return ['All'] + df['state'].tolist()
+    return df['state'].tolist()
 
 state_options = get_states()
-state = st.sidebar.selectbox("📍 State", state_options, index=0)
+selected_states = st.sidebar.multiselect("📍 States", options=state_options, default=[])
 
 # Transaction Type filter
 transaction_types = ['All', 'Peer-to-peer payments', 'Merchant payments', 
@@ -76,130 +76,49 @@ st.sidebar.info("📱 PhonePe Pulse Data Analytics Dashboard")
 # Helper Functions
 # ==========================
 
-@st.cache_data
-def get_top_states(year, quarter, state, transaction_type, limit=10):
-    """Get top states by transaction amount"""
-    conditions = []
-    params = []
-    
-    if year != 'All':
-        conditions.append("year = %s")
-        params.append(year)
-    if quarter != 'All':
-        conditions.append("quarter = %s")
-        params.append(quarter)
-    if state != 'All':
-        conditions.append("state = %s")
-        params.append(state)
-    if transaction_type != 'All':
-        conditions.append("transaction_type = %s")
-        params.append(transaction_type)
-    
-    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-    
-    sql = f"""
-        SELECT state, 
-               SUM(amount) AS total_amount,
-               SUM(count) AS total_transactions
-        FROM aggregated_transaction
-        {where_clause}
-        GROUP BY state
-        ORDER BY total_amount DESC
-        LIMIT %s;
-    """
-    params.append(limit)
-    return run_query(sql, params=params if params else None)
+def apply_time_filters(df: pd.DataFrame, year_sel, quarter_sel) -> pd.DataFrame:
+    if 'year' in df.columns and year_sel != 'All':
+        df = df[df['year'] == year_sel]
+    if 'quarter' in df.columns and quarter_sel != 'All':
+        df = df[df['quarter'] == quarter_sel]
+    return df
+
+def apply_state_filters(df: pd.DataFrame, states: list) -> pd.DataFrame:
+    if states and 'state' in df.columns:
+        df = df[df['state'].isin(states)]
+    return df
+
+def apply_txn_type_filter(df: pd.DataFrame, txn_type: str) -> pd.DataFrame:
+    if txn_type != 'All' and 'transaction_type' in df.columns:
+        df = df[df['transaction_type'] == txn_type]
+    return df
 
 @st.cache_data
-def get_quarterly_trends(year, state, transaction_type):
-    """Get quarterly transaction trends"""
-    conditions = []
-    params = []
-    
-    if year != 'All':
-        conditions.append("year = %s")
-        params.append(year)
-    if state != 'All':
-        conditions.append("state = %s")
-        params.append(state)
-    if transaction_type != 'All':
-        conditions.append("transaction_type = %s")
-        params.append(transaction_type)
-    
-    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-    
-    sql = f"""
-        SELECT year, quarter,
-               SUM(amount) AS total_amount,
-               SUM(count) AS total_transactions
-        FROM aggregated_transaction
-        {where_clause}
-        GROUP BY year, quarter
-        ORDER BY year, quarter;
-    """
-    return run_query(sql, params=params if params else None)
+def get_top_states_df(limit=10):
+    df = run_query_file('sql/queries/1_transaction_dynamics.sql')
+    # This returns top states query per file (last SELECT). If needed, ensure it is the right one.
+    df = df.rename(columns={'sum': 'total_amount'}) if 'sum' in df.columns else df
+    if 'total_amount' not in df.columns and 'total_amount' in df.columns:
+        pass
+    return df.head(limit)
 
 @st.cache_data
-def get_device_distribution(year, quarter, state):
-    """Get device brand distribution"""
-    conditions = []
-    params = []
-    
-    if year != 'All':
-        conditions.append("year = %s")
-        params.append(year)
-    if quarter != 'All':
-        conditions.append("quarter = %s")
-        params.append(quarter)
-    if state != 'All':
-        conditions.append("state = %s")
-        params.append(state)
-    
-    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-    
-    sql = f"""
-        SELECT device_brand,
-               SUM(user_count) AS total_users,
-               AVG(user_percentage) AS avg_percentage
-        FROM aggregated_user
-        {where_clause}
-        GROUP BY device_brand
-        ORDER BY total_users DESC
-        LIMIT 10;
-    """
-    return run_query(sql, params=params if params else None)
+def get_quarterly_trends_df():
+    # Use the first SELECT in the file which creates a view; we want trends
+    text = run_query_file_select('sql/queries/1_transaction_dynamics.sql', contains='year, quarter')
+    return text
 
 @st.cache_data
-def get_insurance_comparison(year, quarter):
-    """Get insurance vs transaction comparison"""
-    conditions = []
-    params = []
-    
-    if year != 'All':
-        conditions.append("year = %s")
-        params.append(year)
-    if quarter != 'All':
-        conditions.append("quarter = %s")
-        params.append(quarter)
-    
-    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-    
-    # Insurance data
-    insurance_sql = f"""
-        SELECT state,
-               SUM(amount) AS insurance_amount,
-               SUM(count) AS insurance_count
-        FROM aggregated_insurance
-        {where_clause}
-        GROUP BY state
-        ORDER BY insurance_amount DESC
-        LIMIT 10;
-    """
-    
-    return run_query(insurance_sql, params=params if params else None)
+def get_device_engagement_df():
+    # Last select in file is engagement ratio
+    return run_query_file('sql/queries/2_device_engagement.sql')
 
 @st.cache_data
-def get_summary_metrics(year, quarter, state, transaction_type):
+def get_insurance_trends_df():
+    return run_query_file('sql/queries/3_insurance_penetration.sql')
+
+@st.cache_data
+def get_summary_metrics(year, quarter, states, transaction_type):
     """Get summary metrics for KPI cards"""
     conditions = []
     params = []
@@ -210,9 +129,9 @@ def get_summary_metrics(year, quarter, state, transaction_type):
     if quarter != 'All':
         conditions.append("quarter = %s")
         params.append(quarter)
-    if state != 'All':
-        conditions.append("state = %s")
-        params.append(state)
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
     if transaction_type != 'All':
         conditions.append("transaction_type = %s")
         params.append(transaction_type)
@@ -231,23 +150,86 @@ def get_summary_metrics(year, quarter, state, transaction_type):
     return run_query(sql, params=params if params else None)
 
 @st.cache_data
-def get_transaction_type_breakdown(year, quarter, state):
-    """Get transaction type breakdown"""
+def get_top_states(year, quarter, states, transaction_type, limit=10):
+    """Get top states by transaction amount with multi-select state filter"""
     conditions = []
     params = []
-    
+
     if year != 'All':
         conditions.append("year = %s")
         params.append(year)
     if quarter != 'All':
         conditions.append("quarter = %s")
         params.append(quarter)
-    if state != 'All':
-        conditions.append("state = %s")
-        params.append(state)
-    
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
+    if transaction_type != 'All':
+        conditions.append("transaction_type = %s")
+        params.append(transaction_type)
+
     where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-    
+
+    sql = f"""
+        SELECT state,
+               SUM(amount) AS total_amount,
+               SUM(count) AS total_transactions
+        FROM aggregated_transaction
+        {where_clause}
+        GROUP BY state
+        ORDER BY total_amount DESC
+        LIMIT %s;
+    """
+    params.append(limit)
+    return run_query(sql, params=params if params else None)
+
+@st.cache_data
+def get_quarterly_trends(year, states, transaction_type):
+    """Get quarterly transaction trends with multi-select state filter"""
+    conditions = []
+    params = []
+
+    if year != 'All':
+        conditions.append("year = %s")
+        params.append(year)
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
+    if transaction_type != 'All':
+        conditions.append("transaction_type = %s")
+        params.append(transaction_type)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    sql = f"""
+        SELECT year, quarter,
+               SUM(amount) AS total_amount,
+               SUM(count) AS total_transactions
+        FROM aggregated_transaction
+        {where_clause}
+        GROUP BY year, quarter
+        ORDER BY year, quarter;
+    """
+    return run_query(sql, params=params if params else None)
+
+@st.cache_data
+def get_transaction_type_breakdown(year, quarter, states):
+    """Get transaction type breakdown with multi-select state filter"""
+    conditions = []
+    params = []
+
+    if year != 'All':
+        conditions.append("year = %s")
+        params.append(year)
+    if quarter != 'All':
+        conditions.append("quarter = %s")
+        params.append(quarter)
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
     sql = f"""
         SELECT transaction_type,
                SUM(amount) AS total_amount,
@@ -259,6 +241,76 @@ def get_transaction_type_breakdown(year, quarter, state):
     """
     return run_query(sql, params=params if params else None)
 
+@st.cache_data
+def get_device_distribution(year, quarter, states):
+    """Get device brand distribution with multi-select state filter"""
+    conditions = []
+    params = []
+
+    if year != 'All':
+        conditions.append("year = %s")
+        params.append(year)
+    if quarter != 'All':
+        conditions.append("quarter = %s")
+        params.append(quarter)
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    sql = f"""
+        SELECT device_brand,
+               SUM(user_count) AS total_users,
+               AVG(user_percentage) AS avg_percentage
+        FROM aggregated_user
+        {where_clause}
+        GROUP BY device_brand
+        ORDER BY total_users DESC
+        LIMIT 10;
+    """
+    return run_query(sql, params=params if params else None)
+
+@st.cache_data
+def get_insurance_comparison(year, quarter, states):
+    """Get insurance totals by state with multi-select filter"""
+    conditions = []
+    params = []
+
+    if year != 'All':
+        conditions.append("year = %s")
+        params.append(year)
+    if quarter != 'All':
+        conditions.append("quarter = %s")
+        params.append(quarter)
+    if states:
+        conditions.append("state = ANY(%s)")
+        params.append(states)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    insurance_sql = f"""
+        SELECT state,
+               SUM(amount) AS insurance_amount,
+               SUM(count) AS insurance_count
+        FROM aggregated_insurance
+        {where_clause}
+        GROUP BY state
+        ORDER BY insurance_amount DESC
+        LIMIT 10;
+    """
+    return run_query(insurance_sql, params=params if params else None)
+
+@st.cache_data
+def get_txn_type_breakdown_df():
+    sql = """
+        SELECT transaction_type, SUM(amount) AS total_amount, SUM(count) AS total_transactions
+        FROM aggregated_transaction
+        GROUP BY transaction_type
+        ORDER BY total_amount DESC;
+    """
+    return run_query(sql)
+
 # ==========================
 # Main Dashboard
 # ==========================
@@ -268,7 +320,7 @@ st.markdown('<h1 class="main-header">📱 PhonePe Pulse Dashboard</h1>', unsafe_
 
 # Summary Metrics
 st.markdown("## 📊 Key Metrics")
-metrics_df = get_summary_metrics(year, quarter, state, transaction_type)
+metrics_df = get_summary_metrics(year, quarter, selected_states, transaction_type)
 
 if not metrics_df.empty:
     col1, col2, col3, col4 = st.columns(4)
@@ -309,7 +361,7 @@ st.markdown("---")
 
 # Row 1: Top States Bar Chart
 st.markdown("## 🏆 Top 10 States by Transaction Amount")
-top_states_df = get_top_states(year, quarter, state, transaction_type, limit=10)
+top_states_df = get_top_states(year, quarter, selected_states, transaction_type, limit=10)
 
 if not top_states_df.empty:
     col1, col2 = st.columns([2, 1])
@@ -343,7 +395,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("## 📈 Quarterly Trends")
-    trends_df = get_quarterly_trends(year, state, transaction_type)
+    trends_df = get_quarterly_trends(year, selected_states, transaction_type)
     
     if not trends_df.empty:
         trends_df['period'] = trends_df['year'].astype(str) + '-Q' + trends_df['quarter'].astype(str)
@@ -363,7 +415,7 @@ with col1:
 
 with col2:
     st.markdown("## 💳 Transaction Type Breakdown")
-    txn_type_df = get_transaction_type_breakdown(year, quarter, state)
+    txn_type_df = get_transaction_type_breakdown(year, quarter, selected_states)
     
     if not txn_type_df.empty:
         fig_pie = px.pie(
@@ -385,7 +437,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("## 📱 Device Brand Distribution")
-    device_df = get_device_distribution(year, quarter, state)
+    device_df = get_device_distribution(year, quarter, selected_states)
     
     if not device_df.empty:
         fig_device = px.bar(
@@ -404,7 +456,7 @@ with col1:
 
 with col2:
     st.markdown("## 🏥 Insurance Transactions")
-    insurance_df = get_insurance_comparison(year, quarter)
+    insurance_df = get_insurance_comparison(year, quarter, selected_states)
     
     if not insurance_df.empty:
         fig_insurance = px.bar(
@@ -436,14 +488,14 @@ with col1:
     st.markdown("### 📈 Year-over-Year Growth")
     
     @st.cache_data
-    def get_yoy_growth(state):
+    def get_yoy_growth(states):
         """Get year-over-year growth rate"""
         conditions = []
         params = []
         
-        if state != 'All':
-            conditions.append("state = %s")
-            params.append(state)
+        if states:
+            conditions.append("state = ANY(%s)")
+            params.append(states)
         
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         
@@ -464,7 +516,7 @@ with col1:
         
         return df
     
-    yoy_df = get_yoy_growth(state)
+    yoy_df = get_yoy_growth(selected_states)
     
     if not yoy_df.empty and len(yoy_df) > 1:
         fig_yoy = go.Figure()
@@ -621,7 +673,7 @@ with col2:
     st.markdown("### 🏙️ Top Districts")
     
     @st.cache_data
-    def get_top_districts(year, quarter, state):
+    def get_top_districts(year, quarter, states):
         """Get top districts by transaction amount"""
         conditions = []
         params = []
@@ -632,9 +684,9 @@ with col2:
         if quarter != 'All':
             conditions.append("quarter = %s")
             params.append(quarter)
-        if state != 'All':
-            conditions.append("state = %s")
-            params.append(state)
+        if states:
+            conditions.append("state = ANY(%s)")
+            params.append(states)
         
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         
@@ -650,7 +702,7 @@ with col2:
         """
         return run_query(sql, params=params if params else None)
     
-    districts_df = get_top_districts(year, quarter, state)
+    districts_df = get_top_districts(year, quarter, selected_states)
     
     if not districts_df.empty:
         fig_districts = px.bar(
@@ -795,7 +847,7 @@ with col1:
     st.markdown("### 👥 User Engagement Metrics")
     
     @st.cache_data
-    def get_user_engagement(year, quarter, state):
+    def get_user_engagement(year, quarter, states):
         """Get user engagement data"""
         conditions = []
         params = []
@@ -806,9 +858,9 @@ with col1:
         if quarter != 'All':
             conditions.append("quarter = %s")
             params.append(quarter)
-        if state != 'All':
-            conditions.append("state = %s")
-            params.append(state)
+        if states:
+            conditions.append("state = ANY(%s)")
+            params.append(states)
         
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         
@@ -826,7 +878,7 @@ with col1:
         """
         return run_query(sql, params=params if params else None)
     
-    engagement_df = get_user_engagement(year, quarter, state)
+    engagement_df = get_user_engagement(year, quarter, selected_states)
     
     if not engagement_df.empty:
         fig_engagement = px.bar(
@@ -851,14 +903,14 @@ with col2:
     st.markdown("### 🏥 Insurance Adoption Trends")
     
     @st.cache_data
-    def get_insurance_trends(state):
+    def get_insurance_trends(states):
         """Get insurance adoption trends"""
         conditions = []
         params = []
         
-        if state != 'All':
-            conditions.append("state = %s")
-            params.append(state)
+        if states:
+            conditions.append("state = ANY(%s)")
+            params.append(states)
         
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         
@@ -873,7 +925,7 @@ with col2:
         """
         return run_query(sql, params=params if params else None)
     
-    ins_trends_df = get_insurance_trends(state)
+    ins_trends_df = get_insurance_trends(selected_states)
     
     if not ins_trends_df.empty:
         ins_trends_df['period'] = ins_trends_df['year'].astype(str) + '-Q' + ins_trends_df['quarter'].astype(str)
@@ -978,7 +1030,7 @@ with col2:
         conditions_main = ["t.state != 'All'"]
         params = []
         params_cte = []
-        
+
         if year != 'All':
             conditions_cte.append("year = %s")
             conditions_main.append("t.year = %s")
@@ -989,13 +1041,13 @@ with col2:
             conditions_main.append("t.quarter = %s")
             params.append(quarter)
             params_cte.append(quarter)
-        
+
         where_clause_cte = "WHERE " + " AND ".join(conditions_cte)
         where_clause_main = "WHERE " + " AND ".join(conditions_main)
-        
+
         # Combine parameters (CTE params + main query params)
         all_params = params_cte + params
-        
+
         sql = f"""
             WITH top_states AS (
                 SELECT state
