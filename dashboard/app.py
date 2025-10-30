@@ -5,13 +5,10 @@ import plotly.graph_objects as go
 import sys
 import os
 
-# Add parent directory to path before importing local modules
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from analysis.run_queries import run_query, run_query_file, run_query_file_select
 
-# ==========================
-# Page Configuration
-# ==========================
 st.set_page_config(
     page_title="PhonePe Pulse Dashboard",
     page_icon="📱",
@@ -19,9 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==========================
-# Custom CSS
-# ==========================
 st.markdown("""
     <style>
     .main-header {
@@ -72,9 +66,7 @@ transaction_type = st.sidebar.selectbox("💳 Transaction Type", transaction_typ
 st.sidebar.markdown("---")
 st.sidebar.info("📱 PhonePe Pulse Data Analytics Dashboard")
 
-# ==========================
-# Helper Functions
-# ==========================
+
 
 def apply_time_filters(df: pd.DataFrame, year_sel, quarter_sel) -> pd.DataFrame:
     if 'year' in df.columns and year_sel != 'All':
